@@ -9,6 +9,8 @@ from fastapi.responses import JSONResponse
 from app.config.settings import get_settings
 from app.config.logging import logger
 from app.config.client_config import get_config_manager, get_client_config
+from app.modules.coze_client import CozeClient
+from app.handlers.kakao import KakaoHandler
 
 settings = get_settings()
 
@@ -19,6 +21,20 @@ app = FastAPI(
     docs_url="/docs" if settings.ENV == "development" else None,
     redoc_url=None,
 )
+
+
+# =========================================================================
+# 헬퍼 함수 — 고객사 설정으로 CozeClient/핸들러 생성
+# =========================================================================
+
+def _make_coze_client(config) -> CozeClient:
+    """고객사 설정으로 CozeClient 인스턴스 생성"""
+    return CozeClient(
+        bot_id=config.coze_bot_id,
+        pat=config.coze_pat,
+        api_base=config.coze_api_base,
+        timeout_seconds=config.timeout_seconds,
+    )
 
 
 # =========================================================================
@@ -39,7 +55,7 @@ async def health_check():
 
 
 # =========================================================================
-# 카카오 오픈빌더 스킬 엔드포인트 — Task 4에서 KakaoHandler 연결
+# 카카오 오픈빌더 스킬 엔드포인트 — KakaoHandler 연결 완료
 # =========================================================================
 
 @app.post("/skill/kakao")
@@ -56,10 +72,13 @@ async def kakao_skill_client(request: Request, client_key: str):
 
 async def _handle_kakao(request: Request, client_key: Optional[str] = None):
     """
-    카카오 스킬 공용 처리 함수 — Task 4에서 KakaoHandler로 교체 예정
+    카카오 스킬 공용 처리 함수
 
-    client_key를 기반으로 고객사 설정을 조회하여 해당 Coze 봇에 연결
+    1. client_key로 고객사 설정 조회
+    2. 설정 기반으로 CozeClient + KakaoHandler 생성
+    3. KakaoHandler.handle()로 전체 파이프라인 실행
     """
+    # 고객사 설정 조회
     config = get_client_config(client_key)
 
     if config is None:
@@ -69,13 +88,33 @@ async def _handle_kakao(request: Request, client_key: Optional[str] = None):
             "template": {"outputs": [{"simpleText": {"text": "서비스 설정 오류가 발생했습니다"}}]}
         })
 
+    # 설정 유효성 검증
+    if not config.is_valid():
+        logger.error(f"카카오 스킬 요청 실패 — 고객사 설정 불완전: {client_key}")
+        return JSONResponse(content={
+            "version": "2.0",
+            "template": {"outputs": [{"simpleText": {"text": "서비스 설정 오류가 발생했습니다"}}]}
+        })
+
     logger.info(f"카카오 스킬 요청 수신 client_key={config.client_key} bot_id={config.coze_bot_id}")
 
-    # TODO: Task 4에서 KakaoHandler.handle() 호출로 교체
-    return JSONResponse(content={
-        "version": "2.0",
-        "template": {"outputs": [{"simpleText": {"text": "서버 준비중입니다"}}]}
-    })
+    try:
+        # 요청 바디 파싱
+        body = await request.json()
+
+        # CozeClient + KakaoHandler 생성 후 처리
+        coze_client = _make_coze_client(config)
+        handler = KakaoHandler(coze_client=coze_client)
+        result = await handler.handle(body)
+
+        return JSONResponse(content=result)
+
+    except Exception as e:
+        logger.error(f"카카오 스킬 처리 중 예외: {type(e).__name__}: {str(e)}")
+        return JSONResponse(content={
+            "version": "2.0",
+            "template": {"outputs": [{"simpleText": {"text": "죄송합니다 일시적인 오류가 발생했습니다"}}]}
+        })
 
 
 # =========================================================================
