@@ -1,7 +1,11 @@
 __pycache__
 *.pyc
 .env
+.env.local
 .git
 .gitignore
 README.md
 .venv
+.cursor
+clients.json.example
+test_coze.py

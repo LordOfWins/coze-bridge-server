@@ -1,0 +1,25 @@
+{
+  "_설명": "멀티 고객사 Coze 봇 설정 파일 — 실제 값은 clients.json에 작성",
+
+  "default": {
+    "label": "기본 고객사",
+    "coze_bot_id": "your_bot_id",
+    "coze_pat": "your_coze_pat",
+    "coze_api_base": "https://api.coze.com",
+    "naver_talk_partner_id": "your_partner_id",
+    "naver_talk_token": "your_naver_talk_token",
+    "timeout_seconds": 4.5,
+    "enabled": true
+  },
+
+  "example_client": {
+    "label": "예시 고객사",
+    "coze_bot_id": "another_bot_id",
+    "coze_pat": "another_pat",
+    "coze_api_base": "https://api.coze.com",
+    "naver_talk_partner_id": "another_partner_id",
+    "naver_talk_token": "another_token",
+    "timeout_seconds": 4.5,
+    "enabled": true
+  }
+}

@@ -6,7 +6,7 @@ Coze API v3 공용 클라이언트 모듈
 - 타임아웃 초과 시 백그라운드 태스크로 폴링 계속
 
 참고 문서:
-- Coze API v3 Chat: https://github.com/coze-dev/coze-studio/wiki/6.-API-Reference
+- Coze API v3 Chat: https://www.coze.com/open/docs/developer_guides/chat_v3
 - Coze Python SDK: https://github.com/coze-dev/coze-py/blob/main/examples/chat_no_stream.py
 """
 import asyncio
@@ -428,16 +428,22 @@ def get_coze_client(
     bot_id: Optional[str] = None,
     pat: Optional[str] = None,
     api_base: Optional[str] = None,
+    timeout: Optional[float] = None,
 ) -> CozeClient:
     """
     CozeClient 팩토리 함수
-    - 파라미터 미지정 시 환경변수에서 기본값 로드
-    - 멀티 고객사 환경에서는 bot_id/pat를 직접 전달하여 사용 (Task 3)
+
+    우선순위:
+    1. 파라미터로 직접 전달된 값
+    2. 환경변수 기본값 (Settings)
+
+    멀티 고객사 환경에서는 get_coze_client_for_client()를 사용
 
     Args:
         bot_id: Coze 봇 ID (미지정 시 환경변수)
         pat: Coze PAT (미지정 시 환경변수)
         api_base: Coze API URL (미지정 시 환경변수)
+        timeout: 응답 대기 타임아웃 (미지정 시 환경변수)
 
     Returns:
         CozeClient 인스턴스
@@ -447,4 +453,40 @@ def get_coze_client(
         bot_id=bot_id or settings.COZE_BOT_ID,
         pat=pat or settings.COZE_PAT,
         api_base=api_base or settings.COZE_API_BASE,
+        timeout_seconds=timeout or settings.COZE_TIMEOUT,
+    )
+
+
+def get_coze_client_for_client(client_key: Optional[str] = None) -> CozeClient:
+    """
+    멀티 고객사 환경용 CozeClient 팩토리
+
+    clients.json에서 client_key에 해당하는 설정을 찾아 CozeClient 생성
+    client_key가 없으면 default 설정 사용
+    설정이 없으면 환경변수 폴백으로 생성
+
+    Args:
+        client_key: 고객사 고유 키 (URL 경로에서 추출)
+
+    Returns:
+        CozeClient 인스턴스
+
+    Raises:
+        ValueError: 고객사 설정이 없거나 비활성인 경우
+    """
+    from app.config.client_config import get_client_config
+
+    config = get_client_config(client_key)
+
+    if config is None:
+        raise ValueError(f"고객사 설정을 찾을 수 없습니다: {client_key}")
+
+    if not config.is_valid():
+        raise ValueError(f"고객사 설정이 불완전합니다: {client_key} (bot_id 또는 pat 누락)")
+
+    return CozeClient(
+        bot_id=config.coze_bot_id,
+        pat=config.coze_pat,
+        api_base=config.coze_api_base,
+        timeout_seconds=config.timeout_seconds,
     )
