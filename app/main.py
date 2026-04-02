@@ -1,7 +1,7 @@
 """
 Coze Bridge Server — FastAPI 메인 앱
 카카오톡 + 네이버톡톡 2채널 동시 운영 브릿지 서버
-멀티 고객사 지원: /skill/kakao/{client_key} 패턴
+멀티 고객사 지원: /skill/kakao/{client_key} 및 /skill/navertalk/{client_key} 패턴
 """
 from typing import Optional
 from fastapi import FastAPI, Request, Header
@@ -11,6 +11,7 @@ from app.config.logging import logger
 from app.config.client_config import get_config_manager, get_client_config
 from app.modules.coze_client import CozeClient
 from app.handlers.kakao import KakaoHandler
+from app.handlers.navertalk import NaverTalkHandler
 
 settings = get_settings()
 
@@ -118,7 +119,7 @@ async def _handle_kakao(request: Request, client_key: Optional[str] = None):
 
 
 # =========================================================================
-# 네이버톡톡 웹훅 엔드포인트 — Task 6에서 NaverTalkHandler 연결
+# 네이버톡톡 웹훅 엔드포인트 — NaverTalkHandler 연결 완료
 # =========================================================================
 
 @app.post("/skill/navertalk")
@@ -135,26 +136,79 @@ async def navertalk_webhook_client(request: Request, client_key: str):
 
 async def _handle_navertalk(request: Request, client_key: Optional[str] = None):
     """
-    네이버톡톡 웹훅 공용 처리 함수 — Task 6에서 NaverTalkHandler로 교체 예정
+    네이버톡톡 웹훅 공용 처리 함수
 
-    client_key를 기반으로 고객사 설정을 조회하여 해당 Coze 봇에 연결
+    1. client_key로 고객사 설정 조회
+    2. 네이버톡톡 인증 토큰 확인
+    3. 설정 기반으로 CozeClient + NaverTalkHandler 생성
+    4. NaverTalkHandler.handle()로 전체 파이프라인 실행
+
+    네이버톡톡 웹훅 특이사항:
+    - 모든 응답은 반드시 200 OK (에러여도)
+    - Content-Type: application/json;charset=UTF-8
+    - 5초 Read Timeout → 초과 시 네이버가 연결 끊음
     """
+    # 고객사 설정 조회
     config = get_client_config(client_key)
 
     if config is None:
         logger.error(f"네이버톡톡 웹훅 요청 실패 — 고객사 설정 없음: {client_key}")
+        # 네이버톡톡은 에러 시에도 200 OK 반환 (재시도 방지)
         return JSONResponse(
             status_code=200,
             content={},
+            headers={"Content-Type": "application/json;charset=UTF-8"},
         )
 
-    logger.info(f"네이버톡톡 웹훅 요청 수신 client_key={config.client_key} partner_id={config.naver_talk_partner_id}")
+    # 설정 유효성 검증
+    if not config.is_valid():
+        logger.error(f"네이버톡톡 웹훅 요청 실패 — 고객사 설정 불완전: {client_key}")
+        return JSONResponse(
+            status_code=200,
+            content={},
+            headers={"Content-Type": "application/json;charset=UTF-8"},
+        )
 
-    # TODO: Task 6에서 NaverTalkHandler.handle() 호출로 교체
-    return JSONResponse(
-        content={"event": "send", "textContent": {"text": "서버 준비중입니다"}},
-        headers={"Content-Type": "application/json;charset=UTF-8"},
+    # 네이버톡톡 인증 토큰 존재 여부 확인
+    if not config.naver_talk_token:
+        logger.error(f"네이버톡톡 웹훅 요청 실패 — 인증 토큰 미설정: {client_key}")
+        return JSONResponse(
+            status_code=200,
+            content={},
+            headers={"Content-Type": "application/json;charset=UTF-8"},
+        )
+
+    logger.info(
+        f"네이버톡톡 웹훅 요청 수신 "
+        f"client_key={config.client_key} "
+        f"partner_id={config.naver_talk_partner_id}"
     )
+
+    try:
+        # 요청 바디 파싱
+        body = await request.json()
+
+        # CozeClient + NaverTalkHandler 생성 후 처리
+        coze_client = _make_coze_client(config)
+        handler = NaverTalkHandler(
+            coze_client=coze_client,
+            naver_talk_token=config.naver_talk_token,
+        )
+        result = await handler.handle(body)
+
+        return JSONResponse(
+            content=result,
+            headers={"Content-Type": "application/json;charset=UTF-8"},
+        )
+
+    except Exception as e:
+        logger.error(f"네이버톡톡 웹훅 처리 중 예외: {type(e).__name__}: {str(e)}")
+        # 네이버톡톡은 에러 시에도 200 OK 반환 (재시도 방지)
+        return JSONResponse(
+            status_code=200,
+            content={},
+            headers={"Content-Type": "application/json;charset=UTF-8"},
+        )
 
 
 # =========================================================================
@@ -239,6 +293,7 @@ async def global_exception_handler(request: Request, exc: Exception):
         return JSONResponse(
             status_code=200,
             content={},
+            headers={"Content-Type": "application/json;charset=UTF-8"},
         )
 
     # 기타 경로
