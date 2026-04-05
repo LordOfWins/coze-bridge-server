@@ -148,7 +148,13 @@ def _build_basic_card_inner(card: dict) -> Optional[dict]:
     # 썸네일 (이미지) — BasicCard에서 thumbnail은 필수는 아니지만 권장
     image_url = card.get("image_url", "")
     if image_url:
-        result["thumbnail"] = {"imageUrl": image_url}
+        thumbnail = {"imageUrl": image_url}
+        # 이미지 클릭 시 URL 이동 — button_url이 있으면 thumbnail.link.web 설정
+        # 카카오 공식 스펙: Thumbnail 객체에 link(Link 타입) 필드 지원 (선택)
+        button_url = card.get("button_url", "")
+        if button_url:
+            thumbnail["link"] = {"web": button_url}
+        result["thumbnail"] = thumbnail
 
     # 버튼 — URL이 있으면 웹링크 버튼 추가
     buttons = _build_buttons(card)
@@ -236,7 +242,13 @@ def _build_commerce_card_inner(card: dict) -> Optional[dict]:
     # 썸네일 — CommerceCard는 thumbnails 배열 형태
     image_url = card.get("image_url", "")
     if image_url:
-        result["thumbnails"] = [{"imageUrl": image_url}]
+        thumbnail_item = {"imageUrl": image_url}
+        # 이미지 클릭 시 URL 이동 — button_url이 있으면 thumbnail.link.web 설정
+        # 카카오 공식 스펙: Thumbnail 객체에 link(Link 타입) 필드 지원 (선택)
+        button_url = card.get("button_url", "")
+        if button_url:
+            thumbnail_item["link"] = {"web": button_url}
+        result["thumbnails"] = [thumbnail_item]
 
     # 버튼
     buttons = _build_buttons(card, default_label="구매하기")

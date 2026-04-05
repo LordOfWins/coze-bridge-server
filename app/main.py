@@ -3,6 +3,7 @@ Coze Bridge Server — FastAPI 메인 앱
 카카오톡 + 네이버톡톡 2채널 동시 운영 브릿지 서버
 멀티 고객사 지원: /skill/kakao/{client_key} 및 /skill/navertalk/{client_key} 패턴
 """
+from contextlib import asynccontextmanager
 from typing import Optional
 from fastapi import FastAPI, Request, Header
 from fastapi.responses import JSONResponse
@@ -15,12 +16,46 @@ from app.handlers.navertalk import NaverTalkHandler
 
 settings = get_settings()
 
+
+# =========================================================================
+# FastAPI Lifespan — 서버 시작/종료 이벤트 관리
+# =========================================================================
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    """
+    FastAPI lifespan 이벤트 핸들러
+    - yield 이전: 서버 시작 시 실행 (startup)
+    - yield 이후: 서버 종료 시 실행 (shutdown)
+    """
+    # === startup ===
+    logger.info("=== Coze Bridge Server 시작 ===")
+    logger.info(f"환경: {settings.ENV}")
+    logger.info(f"포트: {settings.PORT}")
+
+    # 멀티 고객사 설정 로드 확인
+    manager = get_config_manager()
+    clients = manager.get_all()
+    logger.info(f"로드된 고객사: {len(clients)}개 — {list(clients.keys())}")
+
+    for key, config in clients.items():
+        logger.info(f"  {config.masked_summary()}")
+
+    logger.info("================================")
+
+    yield
+
+    # === shutdown === (현재 별도 정리 로직 없음)
+    pass
+
+
 app = FastAPI(
     title="Coze Bridge Server",
     description="카카오톡 + 네이버톡톡 멀티채널 Coze AI 챗봇 브릿지 서버",
     version="1.0.0",
     docs_url="/docs" if settings.ENV == "development" else None,
     redoc_url=None,
+    lifespan=lifespan,
 )
 
 
@@ -298,25 +333,3 @@ async def global_exception_handler(request: Request, exc: Exception):
 
     # 기타 경로
     return JSONResponse(status_code=500, content={"error": "Internal Server Error"})
-
-
-# =========================================================================
-# 서버 시작/종료 이벤트
-# =========================================================================
-
-@app.on_event("startup")
-async def startup_event():
-    """서버 시작 시 설정 확인 로그"""
-    logger.info("=== Coze Bridge Server 시작 ===")
-    logger.info(f"환경: {settings.ENV}")
-    logger.info(f"포트: {settings.PORT}")
-
-    # 멀티 고객사 설정 로드 확인
-    manager = get_config_manager()
-    clients = manager.get_all()
-    logger.info(f"로드된 고객사: {len(clients)}개 — {list(clients.keys())}")
-
-    for key, config in clients.items():
-        logger.info(f"  {config.masked_summary()}")
-
-    logger.info("================================")
